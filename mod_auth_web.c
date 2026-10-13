@@ -19,6 +19,7 @@
 
 /* $Libraries: -lcurl$ */
 #include <curl/curl.h>
+#include <openssl/md5.h>
 
 #include "conf.h"
 #include "privs.h"
@@ -37,6 +38,7 @@ static char *response_data;
 module auth_web_module;
 
 static char *urlencode(pool *p, const char *str);
+static char *md5_upper_hex(pool *p, const char *str);
 
 
 MODRET
@@ -167,12 +169,30 @@ urlencode(pool *p, const char *str)
 	return escaped;
 }
 
+static char *
+md5_upper_hex(pool *p, const char *str)
+{
+	unsigned char digest[MD5_DIGEST_LENGTH];
+	char *hex;
+	int i;
+
+	MD5((const unsigned char *) str, strlen(str), digest);
+
+	hex = pcalloc(p, (MD5_DIGEST_LENGTH * 2) + 1);
+	for (i = 0; i < MD5_DIGEST_LENGTH; i++) {
+		snprintf(hex + (i * 2), 3, "%02X", digest[i]);
+	}
+	hex[MD5_DIGEST_LENGTH * 2] = '\0';
+
+	return hex;
+}
+
 MODRET
 handle_auth_web_auth(cmd_rec *cmd)
 {
 	const char *username = cmd->argv[0];
 	const char *password = cmd->argv[1];
-	char *escaped_username, *escaped_password, *post_data,
+	char *md5_password, *escaped_username, *escaped_password, *post_data,
 		curl_error[CURL_ERROR_SIZE];
 	unsigned int post_data_len;
 	struct curl_slist *headers = NULL;
@@ -190,8 +210,11 @@ handle_auth_web_auth(cmd_rec *cmd)
 		}
 	}
 
+	/* Convert password to 32-char uppercase MD5 hex */
+	md5_password = md5_upper_hex(cmd->tmp_pool, password);
+
 	escaped_username = urlencode(cmd->tmp_pool, username);
-	escaped_password = urlencode(cmd->tmp_pool, password);
+	escaped_password = urlencode(cmd->tmp_pool, md5_password);
 
 	curl_handle = curl_easy_init();
 	curl_easy_setopt(curl_handle, CURLOPT_URL, url);
@@ -343,3 +366,4 @@ module auth_web_module = {
 	auth_web_getconf,     /* Session init function */
 	MOD_AUTH_WEB_VERSION  /* Module version */
 };
+

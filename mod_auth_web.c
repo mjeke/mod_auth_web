@@ -49,7 +49,7 @@ static int check_account_exists(pool *p, const char *username);
 MODRET
 handle_auth_web_getpwnam(cmd_rec *cmd)
 {
-	struct passwd *pw;
+	struct passwd *pw, *local_pw;
 	int rc;
 
 	if (!url || !user_param_name || !pass_param_name || !local_user) {
@@ -83,12 +83,23 @@ handle_auth_web_getpwnam(cmd_rec *cmd)
 		return PR_DECLINED(cmd);
 	}
 
+	/* Look up the local template user. If it does not exist, the
+	 * module cannot provide a valid passwd entry; log and decline
+	 * instead of crashing on a NULL pointer.
+	 */
+	local_pw = getpwnam(local_user);
+	if (!local_pw) {
+		pr_log_pri(PR_LOG_ERR, MOD_AUTH_WEB_VERSION
+			": local user '%s' does not exist, declining", local_user);
+		return PR_DECLINED(cmd);
+	}
+
 	pw = pcalloc(session.pool, sizeof(struct passwd));
 	if (!pw) {
 		return PR_DECLINED(cmd);
 	}
 
-	memcpy(pw, getpwnam(local_user), sizeof(struct passwd));
+	memcpy(pw, local_pw, sizeof(struct passwd));
 	pw->pw_name = pstrdup(session.pool, cmd->argv[0]);
 	if (!pw->pw_name) {
 		return PR_DECLINED(cmd);
